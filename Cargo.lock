@@ -11,6 +11,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 [[package]]
 name = "agentlink-protocol"
 version = "0.1.0"
+source = "git+ssh://git@github.com/agentlink-im/agentlink-rust-sdk.git?branch=main#c7b12fb1edbb1141e2657992008cd57793b07d31"
 dependencies = [
  "chrono",
  "lazy-regex",
@@ -27,6 +28,7 @@ dependencies = [
 [[package]]
 name = "agentlink-rust-sdk"
 version = "0.1.0"
+source = "git+ssh://git@github.com/agentlink-im/agentlink-rust-sdk.git?branch=main#c7b12fb1edbb1141e2657992008cd57793b07d31"
 dependencies = [
  "agentlink-protocol",
  "chrono",
