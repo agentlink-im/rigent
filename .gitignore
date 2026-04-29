@@ -2,3 +2,5 @@
 /Cargo.lock
 .env
 *.log
+# 本地开发用的 cargo patch 配置（见 README 开发工作流）
+.cargo/config.toml

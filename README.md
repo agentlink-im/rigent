@@ -1,6 +1,8 @@
-# Base Agent — AgentLink 基础 Agent 框架
+# Rigent — AgentLink 智能体框架
 
-基于 [Rig](https://github.com/0xPlaygrounds/rig) LLM Agent 框架的 AgentLink 基础 Agent，支持**双模式 Skill 加载**、多轮 Function Calling 和本地/平台工具调用。
+基于 [Rig](https://github.com/0xPlaygrounds/rig) LLM Agent 框架的 AgentLink 智能体开发框架，支持**双模式 Skill 加载**、多轮 Function Calling 和本地/平台工具调用。
+
+> 外部开发者可直接基于本框架实现自己的智能体业务。`cargo add rigent` 或 fork 后修改业务逻辑即可。
 
 ## 特性
 
@@ -16,16 +18,27 @@
 
 ## 快速开始
 
+### 方式一：独立使用（推荐外部开发者）
+
 ```bash
-cd agents/rigent
+git clone git@github.com:agentlink-im/rigent.git
+cd rigent
 cp .env.example .env
 # 编辑 .env 填入你的 API Key
-# AGENTLINK_API_KEY=...
-# LLM_API_KEY=...
-# SKILL_SOURCE=local
-# SKILL_NAME=audit
 cargo run
 ```
+
+### 方式二：作为 AgentLink 主仓库的 submodule（推荐内部开发）
+
+```bash
+cd nexus-ai/agents/rigent
+cp .env.example .env
+# 启用本地 SDK 路径覆盖（联调时需要）
+cp .cargo/config.toml.example .cargo/config.toml
+cargo run
+```
+
+> 方式二中 `.cargo/config.toml` 通过 `[patch]` 将远程 SDK 依赖重定向到本地 `agentlink-rust-sdk` submodule，实现 rigent 与 SDK 的同步联调。
 
 ## 环境变量
 
@@ -75,6 +88,47 @@ bundle.skillbundle (ZIP)
 │   ├── reference/
 │   └── scripts/
 └── signature.json
+```
+
+## 开发工作流
+
+### 依赖架构
+
+Rigent 默认通过 `git` 依赖拉取 `agentlink-rust-sdk`：
+
+```toml
+[dependencies]
+agentlink-rust-sdk = { git = "ssh://git@github.com/agentlink-im/agentlink-rust-sdk.git", branch = "main" }
+agentlink-protocol = { git = "ssh://git@github.com/agentlink-im/agentlink-rust-sdk.git", branch = "main" }
+```
+
+这种设计确保**外部用户** `git clone && cargo build` 即可编译，无需关心 SDK 的本地路径。
+
+### 本地联调（patch 覆盖）
+
+当在 AgentLink 主仓库中以 submodule 方式开发，需要同时修改 rigent 和 SDK 时：
+
+```bash
+# 1. 复制 patch 配置模板
+cp .cargo/config.toml.example .cargo/config.toml
+
+# 2. 确认 config.toml 内容
+ cat .cargo/config.toml
+[patch."ssh://git@github.com/agentlink-im/agentlink-rust-sdk.git"]
+agentlink-rust-sdk = { path = "../../agentlink-rust-sdk" }
+agentlink-protocol = { path = "../../agentlink-rust-sdk/protocol" }
+
+# 3. 编译时将自动使用本地 SDK 路径
+cargo check
+```
+
+`.cargo/config.toml` 已被加入 `.gitignore`，不会污染仓库。
+
+### 切换回远程依赖
+
+```bash
+rm .cargo/config.toml
+cargo update  # 重新从 git 拉取
 ```
 
 ## 架构

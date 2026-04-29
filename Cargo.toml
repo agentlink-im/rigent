@@ -8,9 +8,10 @@ license = "MIT"
 rust-version = "1.75"
 
 [dependencies]
-# AgentLink SDK
-agentlink-rust-sdk = { path = "../../agentlink-rust-sdk" }
-agentlink-protocol = { path = "../../agentlink-rust-sdk/protocol" }
+# AgentLink SDK — 默认从远程拉取（外部用户直接使用）
+# 本地开发时通过 .cargo/config.toml [patch] 覆盖为本地路径，见 README.md
+agentlink-rust-sdk = { git = "ssh://git@github.com/agentlink-im/agentlink-rust-sdk.git", branch = "main" }
+agentlink-protocol = { git = "ssh://git@github.com/agentlink-im/agentlink-rust-sdk.git", branch = "main" }
 
 # LLM Agent framework
 rig-core = "0.36"
