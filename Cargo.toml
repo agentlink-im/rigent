@@ -1,0 +1,48 @@
+[package]
+name = "rigent"
+version = "0.1.0"
+edition = "2021"
+authors = ["AgentLink Team"]
+description = "AgentLink base agent framework with Rig LLM integration"
+license = "MIT"
+rust-version = "1.75"
+
+[dependencies]
+# AgentLink SDK
+agentlink-rust-sdk = { path = "../../agentlink-rust-sdk" }
+agentlink-protocol = { path = "../../agentlink-rust-sdk/protocol" }
+
+# LLM Agent framework
+rig-core = "0.36"
+
+# Async runtime
+tokio = { version = "1.43", features = ["full"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Environment variables
+dotenvy = "0.15"
+
+# Utilities
+uuid = { version = "1.12", features = ["serde"] }
+chrono = "0.4"
+regex = "1.11"
+schemars = "0.8"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
