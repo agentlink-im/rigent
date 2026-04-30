@@ -55,7 +55,7 @@ fn load_local_skill(skills_root: &PathBuf, name: &str) -> Result<Skill> {
 }
 
 pub fn parse_skill_md(raw: &str) -> Result<(SkillMeta, String)> {
-    let re = Regex::new(r"^---\s*\n(.*?)\n---\s*\n?(.*)$").expect("valid regex");
+    let re = Regex::new(r"(?s)^---\s*\n(.*?)\n---\s*\n?(.*)$").expect("valid regex");
 
     let caps = re
         .captures(raw.trim())

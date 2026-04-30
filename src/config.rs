@@ -23,6 +23,12 @@ pub struct FrameworkConfig {
 
     /// Maximum turns for multi-turn tool calling
     pub max_turns: usize,
+
+    /// Maximum messages to keep per conversation in short-term memory (0 = disabled)
+    pub max_history: usize,
+
+    /// Number of messages to batch-summarize into long-term memory when STM overflows
+    pub ltm_batch_size: usize,
 }
 
 impl FrameworkConfig {
@@ -45,6 +51,16 @@ impl FrameworkConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(10),
+
+            max_history: env::var("MAX_HISTORY")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
+
+            ltm_batch_size: env::var("LTM_BATCH_SIZE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5),
         })
     }
 }

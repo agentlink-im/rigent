@@ -5,6 +5,7 @@ use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tracing::{debug, info, warn};
 
 // ===================================================================
 // File Read Tool
@@ -47,7 +48,9 @@ impl Tool for FileRead {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        info!(tool = Self::NAME, path = %args.path, "Executing tool");
         let content = tokio::fs::read_to_string(&args.path).await?;
+        debug!(tool = Self::NAME, path = %args.path, bytes = content.len(), "Tool completed");
         Ok(content)
     }
 }
@@ -87,7 +90,9 @@ impl Tool for FileWrite {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        info!(tool = Self::NAME, path = %args.path, bytes = args.content.len(), "Executing tool");
         tokio::fs::write(&args.path, &args.content).await?;
+        info!(tool = Self::NAME, path = %args.path, "File written successfully");
         Ok(format!("File written successfully: {}", args.path))
     }
 }
@@ -125,6 +130,7 @@ impl Tool for FileList {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        info!(tool = Self::NAME, path = %args.path, "Executing tool");
         let mut entries = tokio::fs::read_dir(&args.path).await?;
         let mut lines = Vec::new();
         while let Some(entry) = entries.next_entry().await? {
@@ -136,6 +142,7 @@ impl Tool for FileList {
             };
             lines.push(format!("{} ({typ})", name));
         }
+        debug!(tool = Self::NAME, path = %args.path, entries = lines.len(), "Tool completed");
         Ok(lines.join("\n"))
     }
 }
@@ -191,9 +198,11 @@ impl Tool for ShellExecute {
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let cmd = args.command.trim();
+        info!(tool = Self::NAME, command = %cmd, "Executing tool");
         let first_token = cmd.split_whitespace().next().unwrap_or("");
 
         if self.forbidden_commands.contains(first_token) {
+            warn!(tool = Self::NAME, command = %first_token, "Forbidden command rejected");
             return Err(LocalToolError::PathNotAllowed(format!(
                 "Command '{}' is forbidden for security reasons.",
                 first_token
@@ -220,6 +229,13 @@ impl Tool for ShellExecute {
             result = "(no output)".to_string();
         }
 
+        info!(
+            tool = Self::NAME,
+            exit_code = output.status.code(),
+            stdout_len = stdout.len(),
+            stderr_len = stderr.len(),
+            "Shell command completed"
+        );
         Ok(result)
     }
 }
@@ -263,10 +279,12 @@ impl Tool for WebFetch {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        info!(tool = Self::NAME, url = %args.url, "Executing tool");
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
         let text = client.get(&args.url).send().await?.text().await?;
+        info!(tool = Self::NAME, url = %args.url, bytes = text.len(), "Web fetch completed");
         // Truncate if too long
         let max_len = 100_000;
         if text.len() > max_len {

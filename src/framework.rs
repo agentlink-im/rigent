@@ -8,6 +8,7 @@ use tracing::info;
 
 use crate::agent::AgentRunner;
 use crate::config::FrameworkConfig;
+use crate::memory::ConversationMemory;
 use crate::skill::{Skill, SkillLoader};
 use crate::tool::build_tools;
 
@@ -17,6 +18,7 @@ pub struct AgentFramework {
     pub agent: Arc<AgentRunner>,
     pub skill: Skill,
     pub my_user_id: uuid::Uuid,
+    pub memory: Option<ConversationMemory>,
 }
 
 impl AgentFramework {
@@ -64,12 +66,25 @@ impl AgentFramework {
 
         // 4. Build LLM agent
         let agent = AgentRunner::build(config, &skill, tools)?;
+        let agent_arc = Arc::new(agent);
+
+        // 5. Initialize layered conversation memory if enabled
+        let memory = if config.max_history > 0 {
+            Some(ConversationMemory::new(
+                config.max_history,
+                config.ltm_batch_size,
+                agent_arc.clone(),
+            ))
+        } else {
+            None
+        };
 
         Ok(Self {
             sdk_client,
-            agent: Arc::new(agent),
+            agent: agent_arc,
             skill,
             my_user_id,
+            memory,
         })
     }
 
@@ -112,11 +127,51 @@ impl AgentFramework {
             "Processing message"
         );
 
-        let response = self.agent.prompt(&input).await?;
+        let conversation_id = msg.conversation_id.to_string();
+        let response = self.chat(&conversation_id, &input).await?;
 
         info!(response = %response, "Agent responded");
 
         Ok(response)
+    }
+
+    /// Chat with the agent, optionally using per-conversation memory.
+    /// If memory is enabled, the conversation history is maintained automatically,
+    /// including any tool calls and tool results from multi-turn execution.
+    pub async fn chat(&self, conversation_id: &str, user_input: &str) -> Result<String> {
+        if let Some(ref memory) = self.memory {
+            let conv_id = uuid::Uuid::parse_str(conversation_id)
+                .with_context(|| format!("Invalid conversation_id: {}", conversation_id))?;
+
+            // 1. Retrieve existing history (does not include current input)
+            info!(conversation_id = %conversation_id, "Retrieving conversation history");
+            let history = memory.get_history(conv_id).await;
+            info!(history_len = history.len(), "Conversation history retrieved");
+
+            // 2. Call agent with full history tracking (captures tool calls / tool results)
+            info!(conversation_id = %conversation_id, input_len = user_input.len(), "Calling LLM agent");
+            let (response, new_messages) = self
+                .agent
+                .chat_with_details(history, user_input)
+                .await?;
+            info!(response_len = response.len(), new_messages = new_messages.len(), "LLM agent responded");
+
+            // 3. Persist every message produced during this turn into memory
+            if !new_messages.is_empty() {
+                info!(count = new_messages.len(), "Persisting messages to memory");
+                for msg in new_messages {
+                    memory.push_message(conv_id, msg).await;
+                }
+            }
+
+            Ok(response)
+        } else {
+            // Memory disabled — fall back to stateless prompt
+            info!(input_len = user_input.len(), "Memory disabled, calling LLM with stateless prompt");
+            let response = self.agent.prompt(user_input).await?;
+            info!(response_len = response.len(), "LLM responded (stateless)");
+            Ok(response)
+        }
     }
 
     pub async fn send_reply(&self, conversation_id: &str, content: String, reply_to: Option<uuid::Uuid>) -> Result<()> {

@@ -9,6 +9,7 @@ use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::Deserialize;
 use serde_json::json;
+use tracing::{debug, info};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AgentLinkToolError {
@@ -63,13 +64,15 @@ impl Tool for SendMessageTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        info!(tool = Self::NAME, conversation_id = %args.conversation_id, "Executing tool");
         let req = SendMessageRequest {
-            content: args.content,
+            content: args.content.clone(),
             kind: Some(MessageType::Text),
             metadata: None,
             reply_to: None,
         };
         let resp = self.client.messages.send_message(&args.conversation_id, req).await?;
+        info!(tool = Self::NAME, message_id = %resp.id, "Message sent successfully");
         Ok(format!("Message sent successfully. ID: {}", resp.id))
     }
 }
@@ -115,7 +118,9 @@ impl Tool for GetTaskTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        info!(tool = Self::NAME, task_id = %args.task_id, "Executing tool");
         let task = self.client.tasks.get_task_by_id(&args.task_id).await?;
+        debug!(tool = Self::NAME, task_id = %args.task_id, "Task fetched");
         Ok(serde_json::to_string_pretty(&task)?)
     }
 }
@@ -157,7 +162,9 @@ impl Tool for ListMyTasksTool {
     }
 
     async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
+        info!(tool = Self::NAME, "Executing tool");
         let tasks = self.client.tasks.get_my_tasks().await?;
+        debug!(tool = Self::NAME, count = tasks.tasks.len(), "Tasks listed");
         Ok(serde_json::to_string_pretty(&tasks)?)
     }
 }
@@ -207,6 +214,7 @@ impl Tool for SearchTasksTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        info!(tool = Self::NAME, query = ?args.query, status = ?args.status, "Executing tool");
         let query = TaskSearchQuery {
             q: args.query,
             status: args.status,
@@ -217,6 +225,7 @@ impl Tool for SearchTasksTool {
             budget_max: None,
         };
         let resp = self.client.tasks.list_tasks(query).await?;
+        debug!(tool = Self::NAME, result_count = resp.data.len(), "Tasks searched");
         Ok(serde_json::to_string_pretty(&resp)?)
     }
 }
@@ -262,7 +271,9 @@ impl Tool for GetUserProfileTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        info!(tool = Self::NAME, user_id = %args.user_id, "Executing tool");
         let user = self.client.users.get_user(&args.user_id).await?;
+        debug!(tool = Self::NAME, user_id = %args.user_id, "User profile fetched");
         Ok(serde_json::to_string_pretty(&user)?)
     }
 }
