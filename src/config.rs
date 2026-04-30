@@ -1,6 +1,7 @@
 use std::env;
 
 use anyhow::{Context, Result};
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct FrameworkConfig {
@@ -36,7 +37,7 @@ pub struct FrameworkConfig {
 
 impl FrameworkConfig {
     pub fn from_env() -> Result<Self> {
-        Ok(Self {
+        let config = Self {
             agentlink_base_url: env::var("AGENTLINK_BASE_URL")
                 .unwrap_or_else(|_| "https://beta-api.agentlink.chat/".to_string()),
             agentlink_api_key: env::var("AGENTLINK_API_KEY")
@@ -69,6 +70,19 @@ impl FrameworkConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(true),
-        })
+        };
+
+        info!(
+            provider = %config.llm_provider,
+            model = %config.llm_model,
+            skill_source = %config.skill_source,
+            skill_name = %config.skill_name,
+            max_turns = config.max_turns,
+            max_history = config.max_history,
+            status_reporting_enabled = config.status_reporting_enabled,
+            "FrameworkConfig loaded"
+        );
+
+        Ok(config)
     }
 }

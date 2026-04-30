@@ -5,7 +5,7 @@ use agentlink_protocol::MessageType;
 use agentlink_rust_sdk::AgentLinkClient;
 use anyhow::Result;
 use serde_json::json;
-use tracing::{debug, error};
+use tracing::{error, info};
 
 // Task-local status reporter for the current message handling context.
 //
@@ -105,7 +105,7 @@ impl StatusReporter {
             reply_to: None,
         };
 
-        debug!(
+        info!(
             conversation_id = %self.conversation_id,
             step_name = %step_name,
             status_type = ?metadata.status_type,
@@ -118,7 +118,7 @@ impl StatusReporter {
             .send_message(&self.conversation_id, req)
             .await
         {
-            Ok(_) => debug!("Agent status sent successfully"),
+            Ok(_) => info!("Agent status sent successfully"),
             Err(e) => error!(error = %e, "Failed to send agent status"),
         }
 
@@ -146,5 +146,107 @@ pub async fn report_tool_error(tool_name: &str, error: &str) {
         reporter
             .error_retry(&format!("工具 {} 执行失败: {}", tool_name, error))
             .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use tokio::task_local;
+
+    task_local! {
+        static TEST_REPORTER: Arc<String>;
+    }
+
+    /// Verify that tokio::task_local! values survive across .await points.
+    /// This is the core mechanism that allows tool calls (deep inside Rig's
+    /// async stack) to access the StatusReporter without passing it through
+    /// every function signature.
+    #[tokio::test]
+    async fn test_task_local_propagates_through_yield() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let reporter = Arc::new("test-reporter".to_string());
+
+        let result = TEST_REPORTER.scope(reporter, async {
+            // First access — before any .await
+            TEST_REPORTER
+                .try_with(|r| {
+                    assert_eq!(r.as_ref(), "test-reporter");
+                    counter_clone.fetch_add(1, Ordering::SeqCst);
+                })
+                .unwrap();
+
+            // Yield to the runtime (simulates an .await inside LLM/tool call)
+            tokio::task::yield_now().await;
+
+            // Second access — after resuming from .await
+            TEST_REPORTER
+                .try_with(|r| {
+                    assert_eq!(r.as_ref(), "test-reporter");
+                    counter_clone.fetch_add(1, Ordering::SeqCst);
+                })
+                .unwrap();
+
+            // Nested async block with another .await
+            async {
+                tokio::task::yield_now().await;
+                TEST_REPORTER
+                    .try_with(|r| {
+                        assert_eq!(r.as_ref(), "test-reporter");
+                        counter_clone.fetch_add(1, Ordering::SeqCst);
+                    })
+                    .unwrap();
+            }
+            .await;
+
+            "done"
+        }).await;
+
+        assert_eq!(result, "done");
+        assert_eq!(counter.load(Ordering::SeqCst), 3);
+    }
+
+    /// Simulate the exact pattern used in AgentFramework::handle_message:
+    /// reporter.scope(|| async { reporter.thinking().await; agent.chat().await; ... })
+    #[tokio::test]
+    async fn test_scope_pattern_matches_framework_usage() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        let reporter = Arc::new("framework-reporter".to_string());
+
+        // This mirrors: reporter.scope(|| async { ... }).await
+        let result = {
+            let r = reporter.clone();
+            TEST_REPORTER.scope(r, async {
+                // thinking() equivalent
+                TEST_REPORTER
+                    .try_with(|rep| {
+                        assert_eq!(rep.as_ref(), "framework-reporter");
+                        counter_clone.fetch_add(1, Ordering::SeqCst);
+                    })
+                    .unwrap();
+
+                // chat_with_details() equivalent — yields internally
+                tokio::task::yield_now().await;
+
+                // tool call inside chat — this is where the bug would appear
+                TEST_REPORTER
+                    .try_with(|rep| {
+                        assert_eq!(rep.as_ref(), "framework-reporter");
+                        counter_clone.fetch_add(1, Ordering::SeqCst);
+                    })
+                    .unwrap();
+
+                "completed"
+            })
+            .await
+        };
+
+        assert_eq!(result, "completed");
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
 }
