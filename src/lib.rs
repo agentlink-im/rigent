@@ -3,6 +3,7 @@ pub mod config;
 pub mod framework;
 pub mod memory;
 pub mod skill;
+pub mod status;
 pub mod tool;
 
 // Re-export SDK and protocol crates for downstream consumers

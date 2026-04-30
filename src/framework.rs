@@ -10,7 +10,9 @@ use crate::agent::AgentRunner;
 use crate::config::FrameworkConfig;
 use crate::memory::ConversationMemory;
 use crate::skill::{Skill, SkillLoader};
+use crate::status::StatusReporter;
 use crate::tool::build_tools;
+use rig::message::AssistantContent;
 
 #[derive(Clone)]
 pub struct AgentFramework {
@@ -19,6 +21,7 @@ pub struct AgentFramework {
     pub skill: Skill,
     pub my_user_id: uuid::Uuid,
     pub memory: Option<ConversationMemory>,
+    status_reporting_enabled: bool,
 }
 
 impl AgentFramework {
@@ -85,12 +88,18 @@ impl AgentFramework {
             skill,
             my_user_id,
             memory,
+            status_reporting_enabled: config.status_reporting_enabled,
         })
     }
 
     pub async fn handle_message(&self, msg: MessageResponse) -> Result<String> {
-        // Ignore our own messages
+        // Ignore our own messages (including our own status messages)
         if msg.sender_id == self.my_user_id {
+            return Ok(String::new());
+        }
+
+        // Ignore agent_status messages from other agents — they are not user input
+        if msg.kind == MessageType::AgentStatus {
             return Ok(String::new());
         }
 
@@ -128,17 +137,60 @@ impl AgentFramework {
         );
 
         let conversation_id = msg.conversation_id.to_string();
-        let response = self.chat(&conversation_id, &input).await?;
 
-        info!(response = %response, "Agent responded");
-
-        Ok(response)
+        // Status reporting: wrap the entire handling flow
+        if self.status_reporting_enabled() {
+            let reporter = StatusReporter::new(self.sdk_client.clone(), conversation_id.clone());
+            reporter
+                .scope(|| async {
+                    reporter
+                        .thinking("正在分析您的需求...")
+                        .await;
+                    let result = self.chat_with_status(&conversation_id, &input, &reporter).await;
+                    match &result {
+                        Ok(response) if !response.is_empty() => {
+                            reporter.complete("处理完成", "回答已生成").await;
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            reporter
+                                .error_retry(&format!("处理过程中出错: {}", e))
+                                .await;
+                        }
+                    }
+                    result
+                })
+                .await
+        } else {
+            self.chat(&conversation_id, &input).await
+        }
     }
 
     /// Chat with the agent, optionally using per-conversation memory.
     /// If memory is enabled, the conversation history is maintained automatically,
     /// including any tool calls and tool results from multi-turn execution.
     pub async fn chat(&self, conversation_id: &str, user_input: &str) -> Result<String> {
+        self.chat_inner(conversation_id, user_input, None).await
+    }
+
+    /// Chat with status reporting. The reporter is passed through so that
+    /// tool invocations (which run inside the same async task) can access it
+    /// via task-local storage.
+    pub async fn chat_with_status(
+        &self,
+        conversation_id: &str,
+        user_input: &str,
+        reporter: &StatusReporter,
+    ) -> Result<String> {
+        self.chat_inner(conversation_id, user_input, Some(reporter)).await
+    }
+
+    async fn chat_inner(
+        &self,
+        conversation_id: &str,
+        user_input: &str,
+        reporter: Option<&StatusReporter>,
+    ) -> Result<String> {
         if let Some(ref memory) = self.memory {
             let conv_id = uuid::Uuid::parse_str(conversation_id)
                 .with_context(|| format!("Invalid conversation_id: {}", conversation_id))?;
@@ -150,11 +202,37 @@ impl AgentFramework {
 
             // 2. Call agent with full history tracking (captures tool calls / tool results)
             info!(conversation_id = %conversation_id, input_len = user_input.len(), "Calling LLM agent");
+            if let Some(r) = reporter {
+                r.processing("正在推理，可能需要调用工具...").await;
+            }
             let (response, new_messages) = self
                 .agent
                 .chat_with_details(history, user_input)
                 .await?;
             info!(response_len = response.len(), new_messages = new_messages.len(), "LLM agent responded");
+
+            // Report tool-call summary based on the detailed messages returned by Rig
+            if let Some(r) = reporter {
+                let mut tool_names: Vec<String> = Vec::new();
+                for msg in &new_messages {
+                    if let rig::completion::Message::Assistant { content, .. } = msg {
+                        for item in content.iter() {
+                            if let AssistantContent::ToolCall(tc) = item {
+                                tool_names.push(tc.function.name.clone());
+                            }
+                        }
+                    }
+                }
+
+                if !tool_names.is_empty() {
+                    let summary = tool_names.join(", ");
+                    r.complete(
+                        "工具调用",
+                        &format!("已完成工具调用: {}", summary),
+                    )
+                    .await;
+                }
+            }
 
             // 3. Persist every message produced during this turn into memory
             if !new_messages.is_empty() {
@@ -168,6 +246,9 @@ impl AgentFramework {
         } else {
             // Memory disabled — fall back to stateless prompt
             info!(input_len = user_input.len(), "Memory disabled, calling LLM with stateless prompt");
+            if let Some(r) = reporter {
+                r.processing("正在生成回答...").await;
+            }
             let response = self.agent.prompt(user_input).await?;
             info!(response_len = response.len(), "LLM responded (stateless)");
             Ok(response)
@@ -196,5 +277,9 @@ impl AgentFramework {
             .await
             .context("Failed to update availability")?;
         Ok(())
+    }
+
+    fn status_reporting_enabled(&self) -> bool {
+        self.status_reporting_enabled
     }
 }

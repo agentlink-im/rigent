@@ -11,6 +11,8 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, info};
 
+use crate::status::{report_tool_call, report_tool_complete, report_tool_error};
+
 #[derive(Debug, thiserror::Error)]
 pub enum AgentLinkToolError {
     #[error("SDK error: {0}")]
@@ -64,6 +66,7 @@ impl Tool for SendMessageTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        report_tool_call(Self::NAME, &format!("发送消息到 {}", args.conversation_id)).await;
         info!(tool = Self::NAME, conversation_id = %args.conversation_id, "Executing tool");
         let req = SendMessageRequest {
             content: args.content.clone(),
@@ -71,9 +74,17 @@ impl Tool for SendMessageTool {
             metadata: None,
             reply_to: None,
         };
-        let resp = self.client.messages.send_message(&args.conversation_id, req).await?;
-        info!(tool = Self::NAME, message_id = %resp.id, "Message sent successfully");
-        Ok(format!("Message sent successfully. ID: {}", resp.id))
+        let result = self.client.messages.send_message(&args.conversation_id, req).await;
+        match &result {
+            Ok(resp) => {
+                report_tool_complete(Self::NAME, &format!("消息已发送, ID: {}", resp.id)).await;
+                info!(tool = Self::NAME, message_id = %resp.id, "Message sent successfully");
+            }
+            Err(e) => {
+                report_tool_error(Self::NAME, &e.to_string()).await;
+            }
+        }
+        Ok(format!("Message sent successfully. ID: {}", result?.id))
     }
 }
 
@@ -118,10 +129,19 @@ impl Tool for GetTaskTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        report_tool_call(Self::NAME, &format!("获取任务 {}", args.task_id)).await;
         info!(tool = Self::NAME, task_id = %args.task_id, "Executing tool");
-        let task = self.client.tasks.get_task_by_id(&args.task_id).await?;
-        debug!(tool = Self::NAME, task_id = %args.task_id, "Task fetched");
-        Ok(serde_json::to_string_pretty(&task)?)
+        let result = self.client.tasks.get_task_by_id(&args.task_id).await;
+        match &result {
+            Ok(_) => {
+                report_tool_complete(Self::NAME, "任务获取成功").await;
+                debug!(tool = Self::NAME, task_id = %args.task_id, "Task fetched");
+            }
+            Err(e) => {
+                report_tool_error(Self::NAME, &e.to_string()).await;
+            }
+        }
+        Ok(serde_json::to_string_pretty(&result?)?)
     }
 }
 
@@ -162,10 +182,19 @@ impl Tool for ListMyTasksTool {
     }
 
     async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
+        report_tool_call(Self::NAME, "获取我的任务列表").await;
         info!(tool = Self::NAME, "Executing tool");
-        let tasks = self.client.tasks.get_my_tasks().await?;
-        debug!(tool = Self::NAME, count = tasks.tasks.len(), "Tasks listed");
-        Ok(serde_json::to_string_pretty(&tasks)?)
+        let result = self.client.tasks.get_my_tasks().await;
+        match &result {
+            Ok(tasks) => {
+                report_tool_complete(Self::NAME, &format!("获取到 {} 个任务", tasks.tasks.len())).await;
+                debug!(tool = Self::NAME, count = tasks.tasks.len(), "Tasks listed");
+            }
+            Err(e) => {
+                report_tool_error(Self::NAME, &e.to_string()).await;
+            }
+        }
+        Ok(serde_json::to_string_pretty(&result?)?)
     }
 }
 
@@ -214,6 +243,7 @@ impl Tool for SearchTasksTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        report_tool_call(Self::NAME, &format!("搜索任务: {:?}", args.query)).await;
         info!(tool = Self::NAME, query = ?args.query, status = ?args.status, "Executing tool");
         let query = TaskSearchQuery {
             q: args.query,
@@ -224,9 +254,17 @@ impl Tool for SearchTasksTool {
             budget_min: None,
             budget_max: None,
         };
-        let resp = self.client.tasks.list_tasks(query).await?;
-        debug!(tool = Self::NAME, result_count = resp.data.len(), "Tasks searched");
-        Ok(serde_json::to_string_pretty(&resp)?)
+        let result = self.client.tasks.list_tasks(query).await;
+        match &result {
+            Ok(resp) => {
+                report_tool_complete(Self::NAME, &format!("找到 {} 个任务", resp.data.len())).await;
+                debug!(tool = Self::NAME, result_count = resp.data.len(), "Tasks searched");
+            }
+            Err(e) => {
+                report_tool_error(Self::NAME, &e.to_string()).await;
+            }
+        }
+        Ok(serde_json::to_string_pretty(&result?)?)
     }
 }
 
@@ -271,9 +309,18 @@ impl Tool for GetUserProfileTool {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        report_tool_call(Self::NAME, &format!("获取用户 {} 的资料", args.user_id)).await;
         info!(tool = Self::NAME, user_id = %args.user_id, "Executing tool");
-        let user = self.client.users.get_user(&args.user_id).await?;
-        debug!(tool = Self::NAME, user_id = %args.user_id, "User profile fetched");
-        Ok(serde_json::to_string_pretty(&user)?)
+        let result = self.client.users.get_user(&args.user_id).await;
+        match &result {
+            Ok(_) => {
+                report_tool_complete(Self::NAME, "用户资料获取成功").await;
+                debug!(tool = Self::NAME, user_id = %args.user_id, "User profile fetched");
+            }
+            Err(e) => {
+                report_tool_error(Self::NAME, &e.to_string()).await;
+            }
+        }
+        Ok(serde_json::to_string_pretty(&result?)?)
     }
 }

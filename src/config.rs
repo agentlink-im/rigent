@@ -29,6 +29,9 @@ pub struct FrameworkConfig {
 
     /// Number of messages to batch-summarize into long-term memory when STM overflows
     pub ltm_batch_size: usize,
+
+    /// Whether to report intermediate execution status to AgentLink platform
+    pub status_reporting_enabled: bool,
 }
 
 impl FrameworkConfig {
@@ -61,6 +64,11 @@ impl FrameworkConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(5),
+
+            status_reporting_enabled: env::var("STATUS_REPORTING_ENABLED")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(true),
         })
     }
 }
