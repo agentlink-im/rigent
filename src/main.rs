@@ -72,10 +72,11 @@ async fn main() -> Result<()> {
     });
 
     // Set agent availability to online
+    info!("📡 Sending request to server: set agent availability = ONLINE");
     if let Err(e) = framework.set_availability(true).await {
-        error!(error = %e, "Failed to set agent availability to online");
+        error!(error = %e, "❌ Failed to set agent availability to online");
     } else {
-        info!("Agent availability set to online");
+        info!("✅ Server confirmed: agent availability set to ONLINE");
     }
 
     // Run WebSocket event loop
@@ -116,10 +117,11 @@ async fn main() -> Result<()> {
     }
 
     // Set agent availability to offline on shutdown
+    info!("📡 Sending request to server: set agent availability = OFFLINE");
     if let Err(e) = framework.set_availability(false).await {
-        error!(error = %e, "Failed to set agent availability to offline");
+        error!(error = %e, "❌ Failed to set agent availability to offline");
     } else {
-        info!("Agent availability set to offline");
+        info!("✅ Server confirmed: agent availability set to OFFLINE");
     }
 
     info!("Base agent stopped");
